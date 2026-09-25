@@ -68,8 +68,12 @@ jobs:
             ids=$(npx wrangler@latest pages deployment list \
                     --project-name "$CF_PROJECT" --json \
                   | jq -r '.[]?.Id // .[]?.id // empty')
-            to_delete=$(echo "$ids" | grep -v -F -x "$prod_id" | grep .)
-            [ -z "$to_delete" ] && { echo "Done. Production: $prod_id"; break; }
+            to_delete=$(echo "$ids" | grep -v -F -x "$prod_id" | grep . || true)
+            #[ -z "$to_delete" ] && { echo "Done. Production: $prod_id"; break; }
+            if [ -z "$to_delete" ]; then
+              echo "Done. Production: $prod_id"
+              break
+            fi
             echo "Deleting $(echo "$to_delete" | wc -l | tr -d ' ') deployments..."
             while IFS= read -r id; do
               [ -z "$id" ] && continue
