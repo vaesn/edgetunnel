@@ -14,13 +14,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: gautamkrishnar/keepalive-workflow@v2
       - name: Checkout pages branch
         uses: actions/checkout@v7
         with:
           ref: pages
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: keepalive
+        uses: gautamkrishnar/keepalive-workflow@v2
 
       - name: Configure git
         run: |
