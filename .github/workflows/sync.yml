@@ -52,7 +52,6 @@ jobs:
           else
             echo "::warning::_worker.js never existed, continuing."
           fi
-
                
       - name: Purge Cloudflare Pages deployments
         continue-on-error: true
@@ -62,49 +61,26 @@ jobs:
           CF_PROJECT: ${{ vars.CLOUDFLARE_PROJECT_NAME }}
         run: |
           set -uo pipefail
-          # 一次性装好，后续复用缓存，避免每次 npx 都重新拉
-          npm install -g wrangler@latest >/dev/null 2>&1 || true
-          export PATH="$PATH:$(npm bin -g 2>/dev/null || echo /usr/local/bin)"
-
-          # 先做一次自检：项目不存在就立刻退出并打印可用的项目列表
-          if ! wrangler pages project list 2>/dev/null | grep -q "^│.*${CF_PROJECT}"; then
-            echo "::error::Project '${CF_PROJECT}' not found in account ${CLOUDFLARE_ACCOUNT_ID}"
-            echo "::group::Available pages projects"
-            wrangler pages project list || true
-            echo "::endgroup::"
-            exit 1
-          fi
-
+          echo "Using account=$CLOUDFLARE_ACCOUNT_ID project=$CF_PROJECT"
+          npx wrangler@latest pages project list
           prod_id=""
           while :; do
-            # 兼容 wrangler 不同版本的 JSON 结构
-            ids=$(wrangler pages deployment list \
+            ids=$(npx wrangler@latest pages deployment list \
                     --project-name "$CF_PROJECT" --json \
-                  | jq -r '
-                      if type == "array" then .[]?.id
-                      elif .result then .result[]?.id
-                      else empty end // empty' | sort -u)
-
-            to_delete=$(printf '%s\n' "$ids" | grep -v -F -x "$prod_id" | grep . || true)
-            [ -z "$to_delete" ] && { echo "Done. Kept production: $prod_id"; break; }
-
-            echo "Deleting $(printf '%s\n' "$to_delete" | wc -l | tr -d ' ') deployments..."
+                  | jq -r '.[]?.Id // .[]?.id // empty')
+            to_delete=$(echo "$ids" | grep -v -F -x "$prod_id" | grep .)
+            [ -z "$to_delete" ] && { echo "Done. Production: $prod_id"; break; }
+            echo "Deleting $(echo "$to_delete" | wc -l | tr -d ' ') deployments..."
             while IFS= read -r id; do
               [ -z "$id" ] && continue
-              wrangler pages deployment delete "$id" \
-                  --project-name "$CF_PROJECT" --force \
-                  > /tmp/wrangler-del.log 2>&1
-              case "$(cat /tmp/wrangler-del.log)" in
-                *"Successfully deleted"*) echo "  ✓ $id" ;;
-                *"active production deployment"*)
-                  echo "  ⤼ skip production: $id"
-                  prod_id="$id" ;;
-                *) echo "  ✗ $id"; sed 's/^/      /' /tmp/wrangler-del.log | head -5 ;;
-              esac
+              if ! npx wrangler@latest pages deployment delete "$id" \
+                    --project-name "$CF_PROJECT" --force \
+                    2>&1 | tee /tmp/wrangler-del.log | grep -q "Successfully deleted"; then
+                grep -q "active production deployment" /tmp/wrangler-del.log && prod_id="$id"
+              fi
               sleep 1
             done <<< "$to_delete"
           done
-
 
       - name: Merge upstream/main into pages
         run: |
