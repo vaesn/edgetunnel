@@ -1,44 +1,85 @@
-name: Upstream Sync
+name: sync upstream into pages
+
+on:
+  schedule:
+    - cron: "37 9 */3 * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
 
-on:
-  schedule:
-    - cron: "0 0 * * *" # every day
-  workflow_dispatch:
-
 jobs:
-  sync_latest_from_upstream:
-    name: Sync latest commits from upstream repo
+  sync:
     runs-on: ubuntu-latest
-    if: ${{ github.event.repository.fork }}
 
     steps:
-      - name: Checkout target repo
-        uses: actions/checkout@v6
+      - name: Checkout pages branch
+        uses: actions/checkout@v4
         with:
+          ref: pages
           fetch-depth: 0
-          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sync upstream changes
+      - name: Configure git
         run: |
-          git config user.name "GH Action - Upstream Sync"
-          git config user.email "action@github.com"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Sync main with upstream
+        run: |
           git remote add upstream https://github.com/cmliu/edgetunnel.git
           git fetch upstream main
 
-          if git diff --quiet HEAD upstream/main; then
-            # 内容和上游一致，直接对齐，顺带清理历史分叉留下的多余 merge commit
-            git reset --hard upstream/main
-            git push --force-with-lease origin main
+          if git cat-file -e origin/main:_worker.js 2>/dev/null; then
+            echo "WORKJS_HAD_BEFORE=true" >> "$GITHUB_ENV"
           else
-            # 有本地修改，保持原来的合并方式，不覆盖任何人的改动
-            if ! git pull --no-rebase upstream main; then
-              echo "[Error] 合并上游变更产生冲突，自动同步已暂停，请手动 Sync Fork 并解决冲突。"
-              echo "[Error] Merge conflict detected while syncing upstream. Please sync your fork manually and resolve the conflicts."
-              exit 1
-            fi
-            git push origin main
+            echo "WORKJS_HAD_BEFORE=false" >> "$GITHUB_ENV"
           fi
+
+          git checkout main
+          if git merge --ff-only upstream/main; then
+            echo "main fast-forwarded or already up to date"
+            git push origin main
+          else
+            echo "main diverged, force reset to upstream"
+            git reset --hard upstream/main
+            git push origin main --force-with-lease
+          fi
+
+      - name: Guard - stop if upstream deleted _worker.js
+        run: |
+          if git cat-file -e upstream/main:_worker.js 2>/dev/null; then
+            echo "_worker.js still exists upstream, continue"
+          elif [ "$WORKJS_HAD_BEFORE" = "true" ]; then
+            echo "::error::Upstream deleted _worker.js. Sync stopped, pages branch untouched."
+            exit 1
+          else
+            echo "::warning::_worker.js never existed upstream, continuing."
+          fi
+
+      - name: Merge main into pages
+        run: |
+          git checkout pages
+          if ! git merge main -X ours --no-edit; then
+            echo "::error::Merge failed. Manual resolution needed."
+            exit 1
+          fi
+          git push origin pages
+
+      - name: Delete past completed runs
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh run list \
+            --repo "${{ github.repository }}" \
+            --workflow "${{ github.workflow }}" \
+            --limit 100 \
+            --json databaseId,status \
+            --jq '.[] | select(.status=="completed") | .databaseId' | while read -r run_id; do
+              if [ -z "$run_id" ]; then continue; fi
+              if [ "$run_id" = "${{ github.run_id }}" ]; then continue; fi
+              gh run delete "$run_id" --repo "${{ github.repository }}" || true
+            done
