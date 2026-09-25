@@ -20,8 +20,6 @@ jobs:
           ref: pages
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - uses: gautamkrishnar/keepalive-workflow@v2
 
       - name: Configure git
         run: |
