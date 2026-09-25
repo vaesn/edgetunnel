@@ -63,7 +63,7 @@ jobs:
           cleanup-types: all
           preview-keep: 1
           production-keep: 1
-          dry-run: 'true'
+          dry-run: 'false'
 
       - name: Merge upstream/main into pages
         run: |
