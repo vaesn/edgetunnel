@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   sync:
@@ -14,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout pages branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: pages
           fetch-depth: 0
@@ -25,46 +26,42 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Sync main with upstream
+      - name: Sync fork main with upstream main
         run: |
           git remote add upstream https://github.com/cmliu/edgetunnel.git
           git fetch upstream main
 
-          if git cat-file -e origin/main:_worker.js 2>/dev/null; then
-            echo "WORKJS_HAD_BEFORE=true" >> "$GITHUB_ENV"
+          # main 作为 upstream 镜像：直接在远端对齐，本地从不检出 main
+          git fetch origin main 2>/dev/null || true
+          if git rev-parse -q --verify refs/remotes/origin/main >/dev/null; then
+            git push origin "upstream/main:main" \
+              --force-with-lease="refs/heads/main:$(git rev-parse refs/remotes/origin/main)"
           else
-            echo "WORKJS_HAD_BEFORE=false" >> "$GITHUB_ENV"
-          fi
-
-          git checkout main
-          if git merge --ff-only upstream/main; then
-            echo "main fast-forwarded or already up to date"
-            git push origin main
-          else
-            echo "main diverged, force reset to upstream"
-            git reset --hard upstream/main
-            git push origin main --force-with-lease
+            echo "fork 尚无 main 分支，首次创建"
+            git push origin "upstream/main:main"
           fi
 
       - name: Guard - stop if upstream deleted _worker.js
         run: |
+          # 以 pages（当前 HEAD）作为"以前存在过"的依据
           if git cat-file -e upstream/main:_worker.js 2>/dev/null; then
             echo "_worker.js still exists upstream, continue"
-          elif [ "$WORKJS_HAD_BEFORE" = "true" ]; then
+          elif git cat-file -e HEAD:_worker.js 2>/dev/null; then
             echo "::error::Upstream deleted _worker.js. Sync stopped, pages branch untouched."
             exit 1
           else
-            echo "::warning::_worker.js never existed upstream, continuing."
+            echo "::warning::_worker.js never existed, continuing."
           fi
 
-      - name: Merge main into pages
+      - name: Merge upstream/main into pages
         run: |
-          git checkout pages
-          if ! git merge main -X ours --no-edit; then
+          # HEAD 全程停留在 pages；upstream/main 与刚推送的 main 指向同一提交，合并结果等价
+          if git merge upstream/main -X ours --no-edit; then
+            git push origin pages
+          else
             echo "::error::Merge failed. Manual resolution needed."
             exit 1
           fi
-          git push origin pages
 
       - name: Delete past completed runs
         if: ${{ always() }}
