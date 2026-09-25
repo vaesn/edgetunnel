@@ -53,17 +53,48 @@ jobs:
             echo "::warning::_worker.js never existed, continuing."
           fi
 
-      - name: Cleanup Cloudflare Pages Deployments
-        uses: Th3S4mur41/cleanup-cloudflare-deployments@v2.0.0
-        with:
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-project-name: ${{ vars.CLOUDFLARE_PAGE_NAME }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          cleanup-types: all
-          preview-keep: 1
-          production-keep: 1
-          dry-run: 'true'
+               
+      - name: Purge Cloudflare Pages deployments
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_PROJECT: ${{ vars.CLOUDFLARE_PROJECT_NAME }}
+        run: |
+          set -uo pipefail
+          LIST_JSON=$(npx wrangler@latest pages deployment list \
+                       --project-name "$CF_PROJECT" --json)
+          echo "$LIST_JSON" | head -50   # 调试用，稳定后可删
+      
+          # 兼容两种返回：裸数组 或 {result:[...]}
+          ids=$(echo "$LIST_JSON" | jq -r '
+            (if type=="array" then . else .result end)[]?.id // empty')
+      
+          # 生产部署 ID 通过 environment 字段识别
+          prod_ids=$(echo "$LIST_JSON" | jq -r '
+            (if type=="array" then . else .result end)[]
+            | select(.environment == "production" or .env == "production")
+            | .id' 2>/dev/null || true)
+      
+          echo "Production ids to keep: $prod_ids"
+          for id in $ids; do
+            if echo "$prod_ids" | grep -q -F -x "$id"; then
+              echo "Skip production deployment $id"
+              continue
+            fi
+            echo "Deleting $id ..."
+            if npx wrangler@latest pages deployment delete "$id" \
+                  --project-name "$CF_PROJECT" --force \
+                  > /tmp/wrangler-del.log 2>&1; then
+              echo "  OK"
+            else
+              echo "  FAIL: $(tail -5 /tmp/wrangler-del.log)"
+            fi
+            sleep 1
+          done
+          echo "Purge finished."
+          exit 0
+
 
       - name: Merge upstream/main into pages
         run: |
