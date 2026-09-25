@@ -53,38 +53,17 @@ jobs:
             echo "::warning::_worker.js never existed, continuing."
           fi
                
-      - name: Purge Cloudflare Pages deployments
-        continue-on-error: true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          CF_PROJECT: ${{ vars.CLOUDFLARE_PROJECT_NAME }}
-        run: |
-          set -uo pipefail
-          echo "Using account=$CLOUDFLARE_ACCOUNT_ID project=$CF_PROJECT"
-          npx wrangler@latest pages project list
-          prod_id=""
-          while :; do
-            ids=$(npx wrangler@latest pages deployment list \
-                    --project-name "$CF_PROJECT" --json \
-                  | jq -r '.[]?.Id // .[]?.id // empty')
-            to_delete=$(echo "$ids" | grep -v -F -x "$prod_id" | grep . || true)
-            #[ -z "$to_delete" ] && { echo "Done. Production: $prod_id"; break; }
-            if [ -z "$to_delete" ]; then
-              echo "Done. Production: $prod_id"
-              break
-            fi
-            echo "Deleting $(echo "$to_delete" | wc -l | tr -d ' ') deployments..."
-            while IFS= read -r id; do
-              [ -z "$id" ] && continue
-              if ! npx wrangler@latest pages deployment delete "$id" \
-                    --project-name "$CF_PROJECT" --force \
-                    2>&1 | tee /tmp/wrangler-del.log | grep -q "Successfully deleted"; then
-                grep -q "active production deployment" /tmp/wrangler-del.log && prod_id="$id"
-              fi
-              sleep 1
-            done <<< "$to_delete"
-          done
+      - name: Cleanup Cloudflare Pages Deployments
+        uses: Th3S4mur41/cleanup-cloudflare-deployments@v2.0.0
+        with:
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-project-name: ${{ secrets.CLOUDFLARE_PAGE_NAME }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cleanup-types: all
+          preview-keep: 1
+          production-keep: 1
+          dry-run: 'true'
 
       - name: Merge upstream/main into pages
         run: |
