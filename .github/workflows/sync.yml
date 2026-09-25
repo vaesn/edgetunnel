@@ -54,7 +54,7 @@ jobs:
           fi
 
       - name: Cleanup Cloudflare Pages Deployments
-        uses: ./
+        uses: Th3S4mur41/cleanup-cloudflare-deployments@v2.0.0
         with:
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
