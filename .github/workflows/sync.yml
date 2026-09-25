@@ -61,6 +61,8 @@ jobs:
           CF_PROJECT: ${{ vars.CLOUDFLARE_PROJECT_NAME }}
         run: |
           set -uo pipefail
+          echo "Using account=$CLOUDFLARE_ACCOUNT_ID project=$CF_PROJECT"
+          npx wrangler@latest pages project list
           prod_id=""
           while :; do
             ids=$(npx wrangler@latest pages deployment list \
