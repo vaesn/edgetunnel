@@ -37,4 +37,4 @@ inputs:
     default: 'false'
 runs:
   using: node24
-  main: dist/index.mjs
+  main: index.mjs
