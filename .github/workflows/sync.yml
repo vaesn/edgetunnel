@@ -21,8 +21,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
           
-      - name: keepalive
-        uses: gautamkrishnar/keepalive-workflow@v2
+      - uses: gautamkrishnar/keepalive-workflow@v2
 
       - name: Configure git
         run: |
